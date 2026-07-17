@@ -19,9 +19,6 @@ jobs:
           multipass version || { echo "Multipass not found"; exit 1; }
           ansible --version || { echo "Ansible not found"; exit 1; }
 
-      - name: Install Ansible community.general collection
-        run: ansible-galaxy collection install community.general
-
       - name: Create Multipass VMs (idempotent)
         run: |
           chmod +x scripts/create-vms.sh
