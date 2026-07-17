@@ -1,52 +1,36 @@
 name: Install Slurm on Multipass
 
 on:
-  workflow_dispatch:          # manual trigger (recommended for first runs)
-  # push:                     # uncomment when stable
+  workflow_dispatch:
+  # push:
   #   branches: [ main ]
 
 jobs:
   install-slurm:
-    runs-on: self-hosted      # must be your MacBook runner
+    runs-on: self-hosted
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify local tools
-        run: |
-          echo "Checking required tools..."
-          multipass version || { echo "Multipass not found"; exit 1; }
-          ansible --version || { echo "Ansible not found"; exit 1; }
+      - name: Verify multipass is available
+        run: multipass version
 
       - name: Create Multipass VMs (idempotent)
         run: |
           chmod +x scripts/create-vms.sh
           ./scripts/create-vms.sh
 
-      - name: Generate Ansible inventory
+      - name: Configure Slurm on all VMs
         run: |
-          chmod +x scripts/generate-inventory.sh
-          ./scripts/generate-inventory.sh
-
-      - name: Bootstrap python3 on all VMs
-        run: |
-          for vm in slurm-controller slurm-node1 slurm-node2; do
-            echo "Installing python3 on $vm..."
-            multipass exec "$vm" -- sudo apt-get install -y python3
-          done
-
-      - name: Test Ansible connectivity (ping)
-        working-directory: ansible
-        run: ansible -i inventory.ini all -m ping
-
-      - name: Install Slurm using Ansible playbook
-        working-directory: ansible
-        run: ansible-playbook -i inventory.ini site.yml
+          chmod +x scripts/configure-slurm.sh
+          ./scripts/configure-slurm.sh
 
       - name: Validate Slurm cluster
         run: |
+          echo "--- sinfo ---"
           multipass exec slurm-controller -- sinfo
+          echo "--- srun test ---"
           multipass exec slurm-controller -- srun -N1 hostname
           echo "Slurm cluster is ready!"
 
@@ -55,8 +39,7 @@ jobs:
           CONTROLLER_IP=$(multipass info slurm-controller | awk '/IPv4/ {print $2}')
           echo "=========================================="
           echo "Slurm installation completed successfully."
-          echo "Controller VM: slurm-controller"
-          echo "Controller IP: $CONTROLLER_IP"
-          echo "Connect with: multipass shell slurm-controller"
-          echo "Then test:    sinfo"
+          echo "Controller IP : $CONTROLLER_IP"
+          echo "Connect with  : multipass shell slurm-controller"
+          echo "Then test     : sinfo"
           echo "=========================================="
