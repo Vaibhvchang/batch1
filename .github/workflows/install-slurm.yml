@@ -1,0 +1,93 @@
+name: Install Slurm on Multipass
+
+on:
+  workflow_dispatch:          # manual trigger (recommended for first runs)
+  # push:                     # uncomment when stable
+  #   branches: [ main ]
+
+jobs:
+  install-slurm:
+    runs-on: self-hosted      # must be your MacBook runner
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify local tools
+        run: |
+          echo "Checking required tools..."
+          multipass version || { echo "Multipass not found"; exit 1; }
+          ansible --version || { echo "Ansible not found"; exit 1; }
+          ssh -V || { echo "SSH not found"; exit 1; }
+
+      - name: Ensure SSH key exists on runner
+        run: |
+          if [ ! -f ~/.ssh/id_rsa ] && [ ! -f ~/.ssh/id_ed25519 ]; then
+            echo "No SSH key found. Generating one..."
+            ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa
+          else
+            echo "SSH key already exists."
+          fi
+          # Show the public key (for debugging)
+          cat ~/.ssh/id_rsa.pub 2>/dev/null || cat ~/.ssh/id_ed25519.pub
+
+      - name: Create Multipass VMs (idempotent)
+        run: |
+          chmod +x scripts/create-vms.sh
+          ./scripts/create-vms.sh
+
+      - name: Inject SSH public key into all VMs
+        run: |
+          PUB_KEY=$(cat ~/.ssh/id_rsa.pub 2>/dev/null || cat ~/.ssh/id_ed25519.pub)
+          if [ -z "$PUB_KEY" ]; then
+            echo "ERROR: No public key found!"
+            exit 1
+          fi
+          for vm in slurm-controller slurm-node1 slurm-node2; do
+            echo "Injecting key into $vm"
+            multipass exec "$vm" -- bash -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh"
+            multipass exec "$vm" -- bash -c "echo '$PUB_KEY' >> ~/.ssh/authorized_keys"
+            multipass exec "$vm" -- bash -c "chmod 600 ~/.ssh/authorized_keys"
+          done
+
+      - name: Verify SSH connectivity (optional)
+        run: |
+          CONTROLLER_IP=$(multipass info slurm-controller | awk '/IPv4/ {print $2}')
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=no ubuntu@$CONTROLLER_IP "echo 'SSH OK'"
+
+      - name: Generate Ansible inventory from VM IPs
+        run: |
+          chmod +x scripts/generate-inventory.sh
+          ./scripts/generate-inventory.sh
+
+      - name: Test Ansible connectivity (ping)
+        working-directory: ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+        run: |
+          ansible -i inventory.ini all -m ping
+
+      - name: Install Slurm using Ansible playbook
+        working-directory: ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+        run: |
+          ansible-playbook -i inventory.ini site.yml
+
+      - name: Validate Slurm cluster
+        run: |
+          CONTROLLER_IP=$(multipass info slurm-controller | awk '/IPv4/ {print $2}')
+          ssh -o StrictHostKeyChecking=no ubuntu@$CONTROLLER_IP "sinfo"
+          ssh -o StrictHostKeyChecking=no ubuntu@$CONTROLLER_IP "srun -N1 hostname"
+          echo "✅ Slurm cluster is ready!"
+
+      - name: Print connection info
+        run: |
+          CONTROLLER_IP=$(multipass info slurm-controller | awk '/IPv4/ {print $2}')
+          echo "=========================================="
+          echo "Slurm installation completed successfully."
+          echo "Controller VM: slurm-controller"
+          echo "Controller IP: $CONTROLLER_IP"
+          echo "Connect with: ssh ubuntu@$CONTROLLER_IP"
+          echo "Then test:    sinfo"
+          echo "=========================================="
