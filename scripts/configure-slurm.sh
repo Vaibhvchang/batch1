@@ -18,6 +18,11 @@ echo "  slurm-node1: $NODE1_IP"
 echo "  slurm-node2: $NODE2_IP"
 
 # ── 1. Install packages ───────────────────────────────────────────────────────
+echo "===> Enabling universe repo and updating apt on all nodes..."
+for vm in "${ALL_VMS[@]}"; do
+  sudo_run "$vm" "add-apt-repository -y universe && apt-get update -qq"
+done
+
 echo "===> Installing munge on all nodes..."
 for vm in "${ALL_VMS[@]}"; do
   sudo_run "$vm" "apt-get install -y munge"
@@ -33,7 +38,7 @@ done
 
 # ── 2. Munge key ─────────────────────────────────────────────────────────────
 echo "===> Generating munge key on controller..."
-sudo_run "$CONTROLLER" "create-munge-key -r -f"
+sudo_run "$CONTROLLER" "mungekey --create --force"
 sudo_run "$CONTROLLER" "chown munge:munge /etc/munge/munge.key && chmod 400 /etc/munge/munge.key"
 
 echo "===> Distributing munge key to compute nodes..."
