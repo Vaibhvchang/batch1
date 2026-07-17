@@ -22,14 +22,19 @@ jobs:
 
       - name: Ensure SSH key exists on runner
         run: |
-          if [ ! -f ~/.ssh/id_rsa ] && [ ! -f ~/.ssh/id_ed25519 ]; then
-            echo "No SSH key found. Generating one..."
-            ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa
+          if [ -f ~/.ssh/id_ed25519 ]; then
+            SSH_KEY=~/.ssh/id_ed25519
+          elif [ -f ~/.ssh/id_rsa ]; then
+            SSH_KEY=~/.ssh/id_rsa
           else
-            echo "SSH key already exists."
+            echo "No SSH key found. Generating one..."
+            ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+            SSH_KEY=~/.ssh/id_ed25519
           fi
-          # Show the public key (for debugging)
-          cat ~/.ssh/id_rsa.pub 2>/dev/null || cat ~/.ssh/id_ed25519.pub
+          # Export for use in subsequent steps
+          echo "SSH_KEY=$SSH_KEY" >> $GITHUB_ENV
+          echo "Using SSH key: $SSH_KEY"
+          cat "${SSH_KEY}.pub"
 
       - name: Create Multipass VMs (idempotent)
         run: |
@@ -38,25 +43,24 @@ jobs:
 
       - name: Inject SSH public key into all VMs
         run: |
-          PUB_KEY=$(cat ~/.ssh/id_rsa.pub 2>/dev/null || cat ~/.ssh/id_ed25519.pub)
+          PUB_KEY=$(cat "${SSH_KEY}.pub")
           if [ -z "$PUB_KEY" ]; then
-            echo "ERROR: No public key found!"
+            echo "ERROR: No public key found at ${SSH_KEY}.pub"
             exit 1
           fi
           for vm in slurm-controller slurm-node1 slurm-node2; do
-            echo "Injecting key into $vm"
+            echo "--- Injecting key into $vm ---"
             multipass exec "$vm" -- bash -c "mkdir -p /home/ubuntu/.ssh && chmod 700 /home/ubuntu/.ssh"
             # Pipe via stdin to avoid quoting/escaping issues with key content
-            echo "$PUB_KEY" | multipass exec "$vm" -- bash -c "cat >> /home/ubuntu/.ssh/authorized_keys"
-            multipass exec "$vm" -- bash -c "chmod 600 /home/ubuntu/.ssh/authorized_keys"
-            echo "Key injected into $vm — verifying:"
-            multipass exec "$vm" -- bash -c "cat /home/ubuntu/.ssh/authorized_keys"
+            echo "$PUB_KEY" | multipass exec "$vm" -- bash -c "cat >> /home/ubuntu/.ssh/authorized_keys && chmod 600 /home/ubuntu/.ssh/authorized_keys"
+            echo "Verified authorized_keys on $vm:"
+            multipass exec "$vm" -- cat /home/ubuntu/.ssh/authorized_keys
           done
 
-      - name: Verify SSH connectivity (optional)
+      - name: Verify SSH connectivity
         run: |
           CONTROLLER_IP=$(multipass info slurm-controller | awk '/IPv4/ {print $2}')
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=no ubuntu@$CONTROLLER_IP "echo 'SSH OK'"
+          ssh -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no ubuntu@$CONTROLLER_IP "echo 'SSH OK'"
 
       - name: Generate Ansible inventory from VM IPs
         run: |
@@ -80,9 +84,9 @@ jobs:
       - name: Validate Slurm cluster
         run: |
           CONTROLLER_IP=$(multipass info slurm-controller | awk '/IPv4/ {print $2}')
-          ssh -o StrictHostKeyChecking=no ubuntu@$CONTROLLER_IP "sinfo"
-          ssh -o StrictHostKeyChecking=no ubuntu@$CONTROLLER_IP "srun -N1 hostname"
-          echo "✅ Slurm cluster is ready!"
+          ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ubuntu@$CONTROLLER_IP "sinfo"
+          ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ubuntu@$CONTROLLER_IP "srun -N1 hostname"
+          echo "Slurm cluster is ready!"
 
       - name: Print connection info
         run: |
