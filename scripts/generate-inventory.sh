@@ -40,6 +40,7 @@ ansible_user=ubuntu
 ansible_ssh_executable=$SSH_WRAPPER
 ansible_ssh_common_args=
 ansible_pipelining=true
+ansible_python_interpreter=/usr/bin/python3
 EOF
 
 echo "Inventory written to ansible/inventory.ini:"
