@@ -35,9 +35,9 @@ SlurmdLogFile=/var/log/slurm/slurmd.log
 SlurmctldDebug=info
 SlurmdDebug=info
 
-# Compute nodes (CPUs detected via Ansible facts)
+# Compute nodes (CPUs and IPs detected via Ansible facts)
 {% for host in groups['compute'] %}
-NodeName={{ host }} NodeAddr={{ hostvars[host]['ansible_host'] }} CPUs={{ hostvars[host]['ansible_processor_vcpus'] | default(1) }} State=UNKNOWN
+NodeName={{ host }} NodeAddr={{ hostvars[host]['ansible_default_ipv4']['address'] }} CPUs={{ hostvars[host]['ansible_processor_vcpus'] | default(1) }} State=UNKNOWN
 {% endfor %}
 
 PartitionName=debug Nodes={{ groups['compute'] | join(',') }} Default=YES MaxTime=INFINITE State=UP

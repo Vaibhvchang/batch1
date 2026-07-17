@@ -1,42 +1,37 @@
 #!/bin/bash
 set -e
 
-# SSH_KEY env var is set by the "Ensure SSH key" workflow step.
-# Fall back to common key paths if running outside the workflow.
-if [ -z "$SSH_KEY" ]; then
-  if [ -f ~/.ssh/id_ed25519 ]; then
-    SSH_KEY=~/.ssh/id_ed25519
-  else
-    SSH_KEY=~/.ssh/id_rsa
+echo "Generating Ansible inventory (multipass connection — no SSH required)..."
+
+# Verify VMs are running
+for vm in slurm-controller slurm-node1 slurm-node2; do
+  STATUS=$(multipass info "$vm" | awk '/State/ {print $2}')
+  if [ "$STATUS" != "Running" ]; then
+    echo "ERROR: VM '$vm' is not running (status: $STATUS)"
+    exit 1
   fi
-fi
-
-echo "Generating Ansible inventory from Multipass VM IPs..."
-echo "Using SSH key: $SSH_KEY"
-
-CONTROLLER_IP=$(multipass info slurm-controller | awk '/IPv4/ {print $2}')
-NODE1_IP=$(multipass info slurm-node1 | awk '/IPv4/ {print $2}')
-NODE2_IP=$(multipass info slurm-node2 | awk '/IPv4/ {print $2}')
-
-if [ -z "$CONTROLLER_IP" ] || [ -z "$NODE1_IP" ] || [ -z "$NODE2_IP" ]; then
-  echo "ERROR: Could not get IP for one or more VMs. Are they running?"
-  multipass list
-  exit 1
-fi
+  echo "$vm is Running"
+done
 
 mkdir -p ansible
 
-cat > ansible/inventory.ini << EOF
+cat > ansible/inventory.ini << 'EOF'
+# Uses community.general.multipass connection — no SSH keys needed.
+# Ansible runs commands via: multipass exec <vm-name> -- <command>
+
 [controller]
-slurm-controller ansible_host=$CONTROLLER_IP ansible_user=ubuntu ansible_ssh_private_key_file=$SSH_KEY
+slurm-controller ansible_connection=community.general.multipass
 
 [compute]
-slurm-node1 ansible_host=$NODE1_IP ansible_user=ubuntu ansible_ssh_private_key_file=$SSH_KEY
-slurm-node2 ansible_host=$NODE2_IP ansible_user=ubuntu ansible_ssh_private_key_file=$SSH_KEY
+slurm-node1 ansible_connection=community.general.multipass
+slurm-node2 ansible_connection=community.general.multipass
 
 [all:children]
 controller
 compute
+
+[all:vars]
+ansible_user=ubuntu
 EOF
 
 echo "Inventory written to ansible/inventory.ini:"
