@@ -29,7 +29,14 @@ jobs:
           chmod +x scripts/generate-inventory.sh
           ./scripts/generate-inventory.sh
 
-      - name: Test Ansible connectivity (ping via multipass exec)
+      - name: Bootstrap python3 on all VMs
+        run: |
+          for vm in slurm-controller slurm-node1 slurm-node2; do
+            echo "Installing python3 on $vm..."
+            multipass exec "$vm" -- sudo apt-get install -y python3
+          done
+
+      - name: Test Ansible connectivity (ping)
         working-directory: ansible
         run: ansible -i inventory.ini all -m ping
 
