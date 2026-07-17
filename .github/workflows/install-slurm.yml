@@ -45,9 +45,12 @@ jobs:
           fi
           for vm in slurm-controller slurm-node1 slurm-node2; do
             echo "Injecting key into $vm"
-            multipass exec "$vm" -- bash -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh"
-            multipass exec "$vm" -- bash -c "echo '$PUB_KEY' >> ~/.ssh/authorized_keys"
-            multipass exec "$vm" -- bash -c "chmod 600 ~/.ssh/authorized_keys"
+            multipass exec "$vm" -- bash -c "mkdir -p /home/ubuntu/.ssh && chmod 700 /home/ubuntu/.ssh"
+            # Pipe via stdin to avoid quoting/escaping issues with key content
+            echo "$PUB_KEY" | multipass exec "$vm" -- bash -c "cat >> /home/ubuntu/.ssh/authorized_keys"
+            multipass exec "$vm" -- bash -c "chmod 600 /home/ubuntu/.ssh/authorized_keys"
+            echo "Key injected into $vm — verifying:"
+            multipass exec "$vm" -- bash -c "cat /home/ubuntu/.ssh/authorized_keys"
           done
 
       - name: Verify SSH connectivity (optional)
