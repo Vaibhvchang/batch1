@@ -1,31 +1,39 @@
 #!/bin/bash
 # Ansible SSH wrapper — routes all SSH calls through "multipass exec"
-# Ansible calls: multipass-ssh.sh [ssh-flags] [user@]hostname [command...]
-# This script strips SSH flags, extracts the VM name, and runs via multipass exec.
+# Ansible calls: multipass-ssh.sh [ssh-flags] [user@]hostname [remote-command...]
+#
+# Key rule: once the hostname is found, ALL remaining args are the remote
+# command — stop parsing SSH flags to avoid misinterpreting remote args
+# like "-c" (shell's command flag) as SSH options.
 
 VM=""
 REMOTE_CMD=()
 skip_next=false
+found_hostname=false
 
 for arg in "$@"; do
+  # Once hostname is found, collect everything as the remote command
+  if $found_hostname; then
+    REMOTE_CMD+=("$arg")
+    continue
+  fi
+
   if $skip_next; then
     skip_next=false
     continue
   fi
+
   case "$arg" in
     # SSH options that consume the next argument — skip both
-    -l|-o|-i|-p|-F|-E|-J|-W|-w|-b|-c|-D|-e|-I|-L|-m|-O|-Q|-R|-S)
+    -l|-o|-i|-p|-F|-E|-J|-W|-w|-b|-e|-I|-L|-m|-O|-Q|-R|-S)
       skip_next=true ;;
     # Standalone SSH flags — skip
     -*)
       ;;
-    # First positional arg is the hostname (strip optional user@ prefix)
+    # First positional arg is the hostname
     *)
-      if [ -z "$VM" ]; then
-        VM="${arg##*@}"
-      else
-        REMOTE_CMD+=("$arg")
-      fi
+      VM="${arg##*@}"   # strip optional user@ prefix
+      found_hostname=true
       ;;
   esac
 done
